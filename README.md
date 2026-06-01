@@ -73,7 +73,7 @@ sudo apt update
 sudo apt install -y ffmpeg
 ```
 
-If FFmpeg is missing, the app still creates scripts and captions, but it cannot render the MP4.
+If FFmpeg is missing or not on PATH, the app still creates scripts and captions, but it cannot render the MP4. Check with `ffmpeg -version`. On Windows, if FFmpeg is installed in a custom location, set `FFMPEG_BIN` to the full `ffmpeg.exe` path before running `npm run dev`.
 
 ### 3. Optional voiceover
 
@@ -118,6 +118,13 @@ npm run dev
 ```
 
 Then open `http://localhost:3000`. Ollama handles the script, FFmpeg renders the MP4, and eSpeak NG provides the basic free voiceover.
+
+If `ffmpeg -version` is not recognized after install, close and reopen PowerShell. If it still is not recognized, set the path manually before starting the app:
+
+```powershell
+$env:FFMPEG_BIN="C:\\Path\\To\\ffmpeg.exe"
+npm run dev
+```
 
 ## How generation works
 

@@ -276,8 +276,10 @@ async function renderVideo(
   audioPath: string | null,
   warnings: string[],
 ): Promise<string | null> {
-  if (!(await commandAvailable("ffmpeg", ["-version"]))) {
-    warnings.push("FFmpeg is not installed, so the app generated the script and captions only.");
+  const ffmpegBin = process.env.FFMPEG_BIN || "ffmpeg";
+
+  if (!(await commandAvailable(ffmpegBin, ["-version"]))) {
+    warnings.push("FFmpeg is not installed or is not on PATH. Install FFmpeg, restart your terminal, or set FFMPEG_BIN to the full ffmpeg.exe path.");
     return null;
   }
 
@@ -323,7 +325,7 @@ async function renderVideo(
   args.push(outputPath);
 
   try {
-    await runCommand("ffmpeg", args, undefined, 180000);
+    await runCommand(ffmpegBin, args, undefined, 180000);
     return outputPath;
   } catch (error) {
     warnings.push(`FFmpeg render failed: ${error instanceof Error ? error.message : "unknown error"}. Script and captions were still generated.`);
