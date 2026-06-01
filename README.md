@@ -9,6 +9,7 @@ The app can:
 - Generate timed `.srt` captions
 - Generate a local voiceover with Piper, espeak, or espeak-ng when available
 - Render a downloadable 9:16 `.mp4` reel with FFmpeg
+- Add free remote photo backgrounds from Picsum when internet is available
 - Run as a Next.js website on your own machine
 
 ## Why this is free
@@ -145,9 +146,23 @@ npm run dev
 Prompt/topic
 -> Ollama local model or template fallback creates 6 caption lines
 -> App creates timed SRT captions
+-> App downloads free background photos from Picsum when internet is available
 -> Piper/espeak/espeak-ng creates a WAV voiceover if available
--> FFmpeg draws captions directly and renders a 1080x1920 vertical MP4
+-> FFmpeg renders photo scenes, visual title cards, and safer captions into a 1080x1920 MP4
 -> Browser shows preview and download links
+```
+
+To force fully offline generation with no remote photos:
+
+```bash
+REMOTE_IMAGES_DISABLED=1 npm run dev
+```
+
+PowerShell:
+
+```powershell
+$env:REMOTE_IMAGES_DISABLED="1"
+npm run dev
 ```
 
 Generated files are written to:
@@ -189,7 +204,7 @@ npm run lint     # run ESLint
 
 Good next upgrades that can still stay free/local:
 
-- Add Pexels/Pixabay stock clip search for richer backgrounds
+- Add Pexels/Pixabay stock clip search for topic-matched backgrounds
 - Add template selection for education, fitness, business, and product reels
 - Add a cleanup job for old generated videos
 - Add user-uploaded clips/images
