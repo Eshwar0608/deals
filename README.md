@@ -7,7 +7,7 @@ The app can:
 - Create a reel script from a topic using local Ollama when available
 - Fall back to a built-in template generator when Ollama is not running
 - Generate timed `.srt` captions
-- Generate a local voiceover with Piper or espeak when available
+- Generate a local voiceover with Piper, espeak, or espeak-ng when available
 - Render a downloadable 9:16 `.mp4` reel with FFmpeg
 - Run as a Next.js website on your own machine
 
@@ -27,7 +27,7 @@ Optional but recommended:
 
 - Ollama for local script generation
 - Piper TTS for better local voiceover
-- espeak as a basic voiceover fallback
+- espeak or espeak-ng as a basic voiceover fallback
 
 ## Quick start
 
@@ -86,10 +86,38 @@ export PIPER_MODEL=/path/to/voice.onnx
 For a simple fallback voice on Ubuntu:
 
 ```bash
-sudo apt install -y espeak
+sudo apt install -y espeak-ng
+```
+
+For Windows ARM / Snapdragon laptops, install eSpeak NG from PowerShell:
+
+```powershell
+winget install eSpeak-NG.eSpeak-NG
+espeak-ng --version
+```
+
+The app automatically tries `espeak`, then `espeak-ng`. If your binary is installed in a custom location, set:
+
+```powershell
+$env:ESPEAK_BIN="C:\\Path\\To\\espeak-ng.exe"
 ```
 
 If no TTS tool is available, the app renders a silent video with captions.
+
+## Windows ARM quick setup
+
+Open PowerShell as Administrator:
+
+```powershell
+irm https://ollama.com/install.ps1 | iex
+ollama pull llama3.2:3b
+winget install Gyan.FFmpeg
+winget install eSpeak-NG.eSpeak-NG
+npm install
+npm run dev
+```
+
+Then open `http://localhost:3000`. Ollama handles the script, FFmpeg renders the MP4, and eSpeak NG provides the basic free voiceover.
 
 ## How generation works
 
@@ -97,7 +125,7 @@ If no TTS tool is available, the app renders a silent video with captions.
 Prompt/topic
 -> Ollama local model or template fallback creates 6 caption lines
 -> App creates timed SRT captions
--> Piper/espeak creates a WAV voiceover if available
+-> Piper/espeak/espeak-ng creates a WAV voiceover if available
 -> FFmpeg renders a 1080x1920 vertical MP4
 -> Browser shows preview and download links
 ```

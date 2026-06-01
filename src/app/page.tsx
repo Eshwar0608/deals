@@ -87,7 +87,7 @@ export default function Home() {
             </p>
             <div className="badges" aria-label="Supported tools">
               <span>Ollama optional</span>
-              <span>Piper or espeak optional</span>
+              <span>Piper or espeak-ng optional</span>
               <span>FFmpeg renderer</span>
               <span>9:16 MP4</span>
             </div>
@@ -236,7 +236,7 @@ export default function Home() {
           </article>
           <article>
             <h3>2. Voice</h3>
-            <p>Use Piper for a better local voice. espeak also works as a basic fallback.</p>
+            <p>Use Piper for a better local voice. espeak or espeak-ng also works as a basic fallback.</p>
             <code>export PIPER_MODEL=/path/to/voice.onnx</code>
           </article>
           <article>

@@ -249,15 +249,20 @@ async function createVoiceover(
     }
   }
 
-  if (await commandAvailable("espeak", ["--version"])) {
+  const espeakBin = await findAvailableCommand(
+    [process.env.ESPEAK_BIN, "espeak", "espeak-ng"],
+    ["--version"],
+  );
+
+  if (espeakBin) {
     try {
-      await runCommand("espeak", ["-w", audioPath, narration], undefined, 90000);
+      await runCommand(espeakBin, ["-w", audioPath, narration], undefined, 90000);
       return audioPath;
     } catch (error) {
-      warnings.push(`espeak voiceover failed: ${error instanceof Error ? error.message : "unknown error"}.`);
+      warnings.push(`${espeakBin} voiceover failed: ${error instanceof Error ? error.message : "unknown error"}.`);
     }
   } else {
-    warnings.push("No local TTS found. Install Piper for better voiceover, or espeak for a basic free voice.");
+    warnings.push("No local TTS found. Install Piper for better voiceover, or espeak/espeak-ng for a basic free voice.");
   }
 
   return null;
@@ -343,6 +348,20 @@ async function commandAvailable(command: string, args: string[]): Promise<boolea
   } catch {
     return false;
   }
+}
+
+async function findAvailableCommand(
+  candidates: Array<string | undefined>,
+  probeArgs: string[],
+): Promise<string | null> {
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (await commandAvailable(candidate, probeArgs)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 function runCommand(
