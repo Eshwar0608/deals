@@ -351,8 +351,7 @@ function buildVideoFilter(
   for (const segment of segments) {
     filters.push(
       [
-        "drawtext",
-        `text='${escapeDrawText(wrapCaptionText(segment.text))}'`,
+        `drawtext=text='${escapeDrawText(wrapCaptionText(segment.text))}'`,
         "fontcolor=white",
         "fontsize=64",
         "line_spacing=10",
