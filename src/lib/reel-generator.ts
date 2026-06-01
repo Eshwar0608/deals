@@ -209,6 +209,7 @@ function cleanLines(raw: string): string[] {
       .replace(/^\[?\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–]\s*\d{1,2}:\d{2}(?::\d{2})?\s*\]?\s*/i, "")
       .replace(/^[-*\d.)\s]+/, "")
       .replace(/["`#]/g, "")
+      .replace(/['’‘]/g, "")
       .trim())
     .filter((line) => line.length > 0)
     .map((line) => line.slice(0, 90))
@@ -414,6 +415,7 @@ function wrapCaptionText(text: string): string {
 
 function escapeDrawText(text: string): string {
   return text
+    .replace(/['’‘]/g, "")
     .replace(/\\/g, "\\\\")
     .replace(/\n/g, "\\n")
     .replace(/:/g, "\\:")
