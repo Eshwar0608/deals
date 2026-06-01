@@ -290,7 +290,13 @@ async function renderVideo(
 
   const outputPath = path.join(outputDir, "reel.mp4");
   const palette = paletteForStyle(input.style);
-  const captionFilter = buildVideoFilter(segments, palette);
+  const captionFontFile = await findCaptionFontFile();
+
+  if (!captionFontFile && process.platform === "win32") {
+    warnings.push("No Windows caption font file was found. Set REEL_FONT_FILE to a .ttf font path if FFmpeg reports Fontconfig errors.");
+  }
+
+  const captionFilter = buildVideoFilter(segments, palette, captionFontFile);
 
   const args = [
     "-y",
@@ -347,6 +353,7 @@ function paletteForStyle(style: string): { background: string; accent: string } 
 function buildVideoFilter(
   segments: ReelSegment[],
   palette: { background: string; accent: string },
+  fontFile: string | null,
 ): string {
   const filters = [
     `drawbox=x=0:y=0:w=iw:h=220:color=${palette.accent}@0.28:t=fill`,
@@ -356,7 +363,7 @@ function buildVideoFilter(
   for (const segment of segments) {
     filters.push(
       [
-        `drawtext=text='${escapeDrawText(wrapCaptionText(segment.text))}'`,
+        buildDrawTextPrefix(fontFile, wrapCaptionText(segment.text)),
         "fontcolor=white",
         "fontsize=64",
         "line_spacing=10",
@@ -371,6 +378,19 @@ function buildVideoFilter(
   }
 
   return filters.join(",");
+}
+
+function buildDrawTextPrefix(fontFile: string | null, text: string): string {
+  const fontOption = fontFile ? `fontfile='${escapeFilterPath(fontFile)}':` : "";
+  return `drawtext=${fontOption}text='${escapeDrawText(text)}'`;
+}
+
+function escapeFilterPath(filePath: string): string {
+  return filePath
+    .replace(/\\/g, "/")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'")
+    .replace(/,/g, "\\,");
 }
 
 function wrapCaptionText(text: string): string {
@@ -402,6 +422,37 @@ function escapeDrawText(text: string): string {
     .replace(/\[/g, "\\[")
     .replace(/\]/g, "\\]")
     .replace(/%/g, "\\%");
+}
+
+async function findCaptionFontFile(): Promise<string | null> {
+  const explicit = process.env.REEL_FONT_FILE;
+  if (explicit && await fileExists(explicit)) {
+    return explicit;
+  }
+
+  const windowsDir = process.env.WINDIR || "C:\\Windows";
+  const candidates = process.platform === "win32"
+    ? [
+        path.join(windowsDir, "Fonts", "arial.ttf"),
+        path.join(windowsDir, "Fonts", "arialbd.ttf"),
+        path.join(windowsDir, "Fonts", "segoeui.ttf"),
+        path.join(windowsDir, "Fonts", "seguisb.ttf"),
+        "C:\\Windows\\Fonts\\arial.ttf",
+      ]
+    : [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
+      ];
+
+  for (const candidate of candidates) {
+    if (await fileExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 async function findFfmpegBinary(): Promise<string | null> {
