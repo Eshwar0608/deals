@@ -297,40 +297,11 @@ async function renderVideo(
     warnings.push("No Windows caption font file was found. Set REEL_FONT_FILE to a .ttf font path if FFmpeg reports Fontconfig errors.");
   }
 
-  const captionFilter = buildVideoFilter(segments, palette, captionFontFile);
-
-  const args = [
-    "-y",
-    "-f",
-    "lavfi",
-    "-i",
-    `color=c=${palette.background}:s=1080x1920:d=${input.duration}:r=30`,
-  ];
-
-  if (audioPath) {
-    args.push("-i", audioPath);
-  }
-
-  args.push(
-    "-vf",
-    captionFilter,
-    "-t",
-    String(input.duration),
-    "-c:v",
-    "libx264",
-    "-pix_fmt",
-    "yuv420p",
-    "-movflags",
-    "+faststart",
-  );
-
-  if (audioPath) {
-    args.push("-c:a", "aac", "-b:a", "128k", "-shortest");
-  } else {
-    args.push("-an");
-  }
-
-  args.push(outputPath);
+  const captionFilter = buildVideoFilter(input, segments, palette, captionFontFile);
+  const imagePaths = await downloadSceneImages(outputDir, input, segments, warnings);
+  const args = imagePaths.length === segments.length
+    ? buildImageRenderArgs(input, segments, imagePaths, captionFilter, outputPath, audioPath)
+    : buildColorRenderArgs(input, palette, captionFilter, outputPath, audioPath);
 
   try {
     await runCommand(ffmpegBin, args, undefined, 180000);
@@ -351,30 +322,133 @@ function paletteForStyle(style: string): { background: string; accent: string } 
   return { background: "0x0f172a", accent: "0x38bdf8" };
 }
 
+function buildColorRenderArgs(
+  input: NormalizedInput,
+  palette: { background: string; accent: string },
+  captionFilter: string,
+  outputPath: string,
+  audioPath: string | null,
+): string[] {
+  const args = [
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `color=c=${palette.background}:s=1080x1920:d=${input.duration}:r=30`,
+  ];
+
+  if (audioPath) {
+    args.push("-i", audioPath);
+  }
+
+  args.push(
+    "-vf",
+    captionFilter,
+    "-t",
+    String(input.duration),
+    "-r",
+    "30",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+  );
+
+  if (audioPath) {
+    args.push("-c:a", "aac", "-b:a", "128k", "-shortest");
+  } else {
+    args.push("-an");
+  }
+
+  args.push(outputPath);
+  return args;
+}
+
+function buildImageRenderArgs(
+  input: NormalizedInput,
+  segments: ReelSegment[],
+  imagePaths: string[],
+  captionFilter: string,
+  outputPath: string,
+  audioPath: string | null,
+): string[] {
+  const args = ["-y"];
+
+  for (let index = 0; index < imagePaths.length; index += 1) {
+    const segmentDuration = Math.max(0.1, segments[index].end - segments[index].start);
+    args.push("-loop", "1", "-t", String(segmentDuration), "-i", imagePaths[index]);
+  }
+
+  if (audioPath) {
+    args.push("-i", audioPath);
+  }
+
+  const preparedInputs = imagePaths
+    .map((_, index) => `[${index}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30[v${index}]`)
+    .join(";");
+  const concatInputs = imagePaths.map((_, index) => `[v${index}]`).join("");
+  const filterComplex = `${preparedInputs};${concatInputs}concat=n=${imagePaths.length}:v=1:a=0,format=yuv420p[base];[base]${captionFilter}[v]`;
+
+  args.push(
+    "-filter_complex",
+    filterComplex,
+    "-map",
+    "[v]",
+  );
+
+  if (audioPath) {
+    args.push("-map", `${imagePaths.length}:a:0`, "-c:a", "aac", "-b:a", "128k", "-shortest");
+  } else {
+    args.push("-an");
+  }
+
+  args.push(
+    "-t",
+    String(input.duration),
+    "-r",
+    "30",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    outputPath,
+  );
+
+  return args;
+}
+
 function buildVideoFilter(
+  input: NormalizedInput,
   segments: ReelSegment[],
   palette: { background: string; accent: string },
   fontFile: string | null,
 ): string {
   const filters = [
-    `drawbox=x=0:y=0:w=iw:h=220:color=${palette.accent}@0.28:t=fill`,
-    `drawbox=x=0:y=1700:w=iw:h=220:color=${palette.accent}@0.18:t=fill`,
+    "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.34:t=fill",
+    `drawbox=x=0:y=0:w=iw:h=170:color=${palette.accent}@0.46:t=fill`,
+    "drawbox=x=70:y=1738:w=940:h=14:color=white@0.25:t=fill",
   ];
 
   for (const segment of segments) {
+    const enable = ffmpegEnable(segment);
+    const caption = normalizeCaptionForRender(segment.text);
+    const visualTitle = extractVisualTitle(segment.text, input.topic);
+    const captionSize = caption.length > 70 ? 46 : caption.length > 52 ? 52 : 58;
+
     filters.push(
-      [
-        buildDrawTextPrefix(fontFile, wrapCaptionText(segment.text)),
-        "fontcolor=white",
-        "fontsize=64",
-        "line_spacing=10",
-        "box=1",
-        "boxcolor=black@0.62",
-        "boxborderw=28",
-        "x=(w-text_w)/2",
-        "y=h-470",
-        `enable='between(t\\,${segment.start}\\,${segment.end})'`,
-      ].join(":"),
+      `drawbox=x=70:y=1110:w=940:h=500:color=black@0.66:t=fill:enable=${enable}`,
+      `drawbox=x=90:y=1130:w=900:h=6:color=${palette.accent}@0.98:t=fill:enable=${enable}`,
+      `${buildDrawTextPrefix(fontFile, visualTitle)}:fontcolor=white:fontsize=82:line_spacing=14:x=(w-text_w)/2:y=690:enable=${enable}`,
+      `${buildDrawTextPrefix(fontFile, `SCENE ${String(segments.indexOf(segment) + 1).padStart(2, "0")}`)}:fontcolor=white@0.86:fontsize=34:x=92:y=66:enable=${enable}`,
+      `${buildDrawTextPrefix(fontFile, wrapCaptionText(caption, 24, 4))}:fontcolor=white:fontsize=${captionSize}:line_spacing=12:box=0:x=(w-text_w)/2:y=1235:fix_bounds=1:enable=${enable}`,
     );
   }
 
@@ -394,14 +468,14 @@ function escapeFilterPath(filePath: string): string {
     .replace(/,/g, "\\,");
 }
 
-function wrapCaptionText(text: string): string {
+function wrapCaptionText(text: string, maxLineLength = 28, maxLines = 3): string {
   const words = text.replace(/\s+/g, " ").trim().split(" ");
   const lines: string[] = [];
   let current = "";
 
   for (const word of words) {
     const next = current ? `${current} ${word}` : word;
-    if (next.length > 28 && current) {
+    if (next.length > maxLineLength && current) {
       lines.push(current);
       current = word;
     } else {
@@ -410,7 +484,32 @@ function wrapCaptionText(text: string): string {
   }
 
   if (current) lines.push(current);
-  return lines.slice(0, 3).join("\n");
+  return lines.slice(0, maxLines).join("\n");
+}
+
+function normalizeCaptionForRender(text: string): string {
+  return text
+    .replace(/[’‘']/g, "")
+    .replace(/[“”"]/g, "")
+    .replace(/#/g, "")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractVisualTitle(segmentText: string, topic: string): string {
+  const source = normalizeCaptionForRender(segmentText.length > 18 ? segmentText : topic);
+  const words = source
+    .split(" ")
+    .filter((word) => word.length > 2)
+    .slice(0, 4);
+
+  const title = words.length > 0 ? words.join(" ") : "Fresh Reel Idea";
+  return wrapCaptionText(title.toUpperCase(), 15, 2);
+}
+
+function ffmpegEnable(segment: ReelSegment): string {
+  return `'between(t\\,${segment.start}\\,${segment.end})'`;
 }
 
 function escapeDrawText(text: string): string {
@@ -424,6 +523,43 @@ function escapeDrawText(text: string): string {
     .replace(/\[/g, "\\[")
     .replace(/\]/g, "\\]")
     .replace(/%/g, "\\%");
+}
+
+async function downloadSceneImages(
+  outputDir: string,
+  input: NormalizedInput,
+  segments: ReelSegment[],
+  warnings: string[],
+): Promise<string[]> {
+  if (process.env.REMOTE_IMAGES_DISABLED === "1") {
+    return [];
+  }
+
+  const paths: string[] = [];
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const seed = encodeURIComponent(`${input.topic}-${input.style}-${index}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 80));
+    const imagePath = path.join(outputDir, `scene-${index + 1}.jpg`);
+
+    try {
+      const response = await fetch(`https://picsum.photos/seed/${seed}/1080/1920`, {
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const buffer = Buffer.from(await response.arrayBuffer());
+      await writeFile(imagePath, buffer);
+      paths.push(imagePath);
+    } catch (error) {
+      warnings.push(`Could not download free background image ${index + 1}: ${error instanceof Error ? error.message : "unknown error"}. Used generated background instead.`);
+      return [];
+    }
+  }
+
+  return paths;
 }
 
 async function findCaptionFontFile(): Promise<string | null> {
