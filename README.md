@@ -132,6 +132,13 @@ $env:FFMPEG_BIN="C:\\Path\\To\\ffmpeg.exe"
 npm run dev
 ```
 
+If FFmpeg reports `Fontconfig error: Cannot load default config file`, set a Windows font file before starting the app:
+
+```powershell
+$env:REEL_FONT_FILE="C:\\Windows\\Fonts\\arial.ttf"
+npm run dev
+```
+
 ## How generation works
 
 ```text
