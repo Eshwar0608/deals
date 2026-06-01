@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const OUTPUT_ROOT = path.join(process.cwd(), "public", "generated", "reels");
@@ -204,7 +204,12 @@ function cleanLines(raw: string): string[] {
   return raw
     .split(/\r?\n/)
     .flatMap((line) => line.split(/(?<=[.!?])\s+(?=[A-Z0-9])/))
-    .map((line) => line.replace(/^[-*\d.)\s]+/, "").replace(/["`#]/g, "").trim())
+    .map((line) => line
+      .replace(/^\(?\s*\d+(?:\.\d+)?\s*s?\s*[-–]\s*\d+(?:\.\d+)?\s*s?\s*\)?\s*/i, "")
+      .replace(/^\[?\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–]\s*\d{1,2}:\d{2}(?::\d{2})?\s*\]?\s*/i, "")
+      .replace(/^[-*\d.)\s]+/, "")
+      .replace(/["`#]/g, "")
+      .trim())
     .filter((line) => line.length > 0)
     .map((line) => line.slice(0, 90))
     .slice(0, 6);
@@ -276,9 +281,9 @@ async function renderVideo(
   audioPath: string | null,
   warnings: string[],
 ): Promise<string | null> {
-  const ffmpegBin = process.env.FFMPEG_BIN || "ffmpeg";
+  const ffmpegBin = await findFfmpegBinary();
 
-  if (!(await commandAvailable(ffmpegBin, ["-version"]))) {
+  if (!ffmpegBin) {
     warnings.push("FFmpeg is not installed or is not on PATH. Install FFmpeg, restart your terminal, or set FFMPEG_BIN to the full ffmpeg.exe path.");
     return null;
   }
@@ -397,6 +402,87 @@ function escapeDrawText(text: string): string {
     .replace(/\[/g, "\\[")
     .replace(/\]/g, "\\]")
     .replace(/%/g, "\\%");
+}
+
+async function findFfmpegBinary(): Promise<string | null> {
+  const explicit = process.env.FFMPEG_BIN;
+  const pathCandidates = [explicit, "ffmpeg", "ffmpeg.exe"];
+
+  const availableFromPath = await findAvailableCommand(pathCandidates, ["-version"]);
+  if (availableFromPath) {
+    return availableFromPath;
+  }
+
+  if (process.platform !== "win32") {
+    return null;
+  }
+
+  const fileCandidates = [
+    "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Links", "ffmpeg.exe"),
+    process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES, "ffmpeg", "bin", "ffmpeg.exe"),
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, "ffmpeg", "bin", "ffmpeg.exe"),
+  ].filter(Boolean) as string[];
+
+  for (const candidate of fileCandidates) {
+    if (await fileExists(candidate) && await commandAvailable(candidate, ["-version"])) {
+      return candidate;
+    }
+  }
+
+  const wingetRoot = process.env.LOCALAPPDATA
+    ? path.join(process.env.LOCALAPPDATA, "Microsoft", "WinGet", "Packages")
+    : null;
+
+  if (wingetRoot) {
+    const discovered = await findFileByName(wingetRoot, "ffmpeg.exe", 350);
+    for (const candidate of discovered) {
+      if (await commandAvailable(candidate, ["-version"])) {
+        return candidate;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function findFileByName(rootDir: string, fileName: string, maxDirs: number): Promise<string[]> {
+  const matches: string[] = [];
+  const queue = [rootDir];
+  let visited = 0;
+
+  while (queue.length > 0 && visited < maxDirs) {
+    const current = queue.shift();
+    if (!current) continue;
+    visited += 1;
+
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      if (entry.isFile() && entry.name.toLowerCase() === fileName.toLowerCase()) {
+        matches.push(fullPath);
+      } else if (entry.isDirectory()) {
+        queue.push(fullPath);
+      }
+    }
+  }
+
+  return matches;
 }
 
 async function commandAvailable(command: string, args: string[]): Promise<boolean> {
