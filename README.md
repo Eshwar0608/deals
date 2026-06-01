@@ -58,6 +58,12 @@ You can change the model with:
 export OLLAMA_MODEL=llama3.2:3b
 ```
 
+If Ollama is slow on Windows ARM, increase the local request timeout before starting the app:
+
+```powershell
+$env:OLLAMA_TIMEOUT_MS="60000"
+```
+
 Disable Ollama and force the template fallback with:
 
 ```bash
@@ -133,7 +139,7 @@ Prompt/topic
 -> Ollama local model or template fallback creates 6 caption lines
 -> App creates timed SRT captions
 -> Piper/espeak/espeak-ng creates a WAV voiceover if available
--> FFmpeg renders a 1080x1920 vertical MP4
+-> FFmpeg draws captions directly and renders a 1080x1920 vertical MP4
 -> Browser shows preview and download links
 ```
 
@@ -144,6 +150,10 @@ public/generated/reels/<id>/
 ```
 
 That folder is ignored by git because rendered videos can become large.
+
+## Troubleshooting Windows FFmpeg subtitle path errors
+
+Older versions of this app used FFmpeg's `subtitles` filter with an `.srt` path. On Windows, paths like `C:\Users\...` can be parsed incorrectly by that filter. The renderer now draws captions directly from the generated script segments, so pull the latest branch and clear `.next` if you see an `Unable to parse "original_size"` FFmpeg error.
 
 ## Troubleshooting Windows workspace root errors
 

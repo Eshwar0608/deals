@@ -140,7 +140,7 @@ async function generateScriptLines(
 async function generateWithOllama(input: NormalizedInput): Promise<string[]> {
   const host = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
   const model = process.env.OLLAMA_MODEL || "llama3.2:3b";
-  const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 12000);
+  const timeoutMs = Number(process.env.OLLAMA_TIMEOUT_MS || 45000);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -285,11 +285,7 @@ async function renderVideo(
 
   const outputPath = path.join(outputDir, "reel.mp4");
   const palette = paletteForStyle(input.style);
-  const captionFilter = [
-    `subtitles=${captionsPath}:force_style='FontName=Arial,FontSize=72,PrimaryColour=&H00FFFFFF,OutlineColour=&HAA000000,BackColour=&H77000000,BorderStyle=4,Outline=2,Shadow=0,Alignment=2,MarginV=230'`,
-    `drawbox=x=0:y=0:w=iw:h=220:color=${palette.accent}@0.28:t=fill`,
-    `drawbox=x=0:y=1700:w=iw:h=220:color=${palette.accent}@0.18:t=fill`,
-  ].join(",");
+  const captionFilter = buildVideoFilter(segments, palette);
 
   const args = [
     "-y",
@@ -329,7 +325,7 @@ async function renderVideo(
     return outputPath;
   } catch (error) {
     warnings.push(`FFmpeg render failed: ${error instanceof Error ? error.message : "unknown error"}. Script and captions were still generated.`);
-    await writeFile(path.join(outputDir, "render-debug.json"), JSON.stringify({ input, segments, args }, null, 2));
+    await writeFile(path.join(outputDir, "render-debug.json"), JSON.stringify({ input, segments, captionsPath, args }, null, 2));
     return null;
   }
 }
@@ -341,6 +337,67 @@ function paletteForStyle(style: string): { background: string; accent: string } 
   if (lowered.includes("fitness")) return { background: "0x06120b", accent: "0x22c55e" };
   if (lowered.includes("luxury")) return { background: "0x120d07", accent: "0xd4af37" };
   return { background: "0x0f172a", accent: "0x38bdf8" };
+}
+
+function buildVideoFilter(
+  segments: ReelSegment[],
+  palette: { background: string; accent: string },
+): string {
+  const filters = [
+    `drawbox=x=0:y=0:w=iw:h=220:color=${palette.accent}@0.28:t=fill`,
+    `drawbox=x=0:y=1700:w=iw:h=220:color=${palette.accent}@0.18:t=fill`,
+  ];
+
+  for (const segment of segments) {
+    filters.push(
+      [
+        "drawtext",
+        `text='${escapeDrawText(wrapCaptionText(segment.text))}'`,
+        "fontcolor=white",
+        "fontsize=64",
+        "line_spacing=10",
+        "box=1",
+        "boxcolor=black@0.62",
+        "boxborderw=28",
+        "x=(w-text_w)/2",
+        "y=h-470",
+        `enable='between(t\\,${segment.start}\\,${segment.end})'`,
+      ].join(":"),
+    );
+  }
+
+  return filters.join(",");
+}
+
+function wrapCaptionText(text: string): string {
+  const words = text.replace(/\s+/g, " ").trim().split(" ");
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > 28 && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+
+  if (current) lines.push(current);
+  return lines.slice(0, 3).join("\n");
+}
+
+function escapeDrawText(text: string): string {
+  return text
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/:/g, "\\:")
+    .replace(/'/g, "\\'")
+    .replace(/,/g, "\\,")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/%/g, "\\%");
 }
 
 async function commandAvailable(command: string, args: string[]): Promise<boolean> {
