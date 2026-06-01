@@ -30,7 +30,11 @@
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.7",
+    "postcss": "^8.5.15",
     "typescript": "^6.0.3"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "postcss": "^8.5.15"
+  }
 }
