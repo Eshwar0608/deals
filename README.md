@@ -145,6 +145,20 @@ public/generated/reels/<id>/
 
 That folder is ignored by git because rendered videos can become large.
 
+## Troubleshooting Windows workspace root errors
+
+If Next.js reports that it selected `C:\Users\<you>\package-lock.json` as the workspace root, or you see a React Client Manifest error, stop the dev server and remove the accidental parent lockfile and stale build cache:
+
+```powershell
+cd "C:\Users\manoj\OneDrive\Documents\GitHub\deals"
+Remove-Item -Force "$HOME\package-lock.json" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue
+npm install
+npm run dev
+```
+
+The app also sets `turbopack.root` to the current project directory so Turbopack does not infer `C:\Users\<you>` as the root when another lockfile exists above the repo.
+
 ## Useful scripts
 
 ```bash
