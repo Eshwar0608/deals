@@ -1,0 +1,40 @@
+{
+  "name": "local-ai-reels-generator",
+  "version": "1.0.0",
+  "description": "A free local-first AI reels generator prototype using optional Ollama, Piper/espeak, and FFmpeg.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Eshwar0608/deals.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Eshwar0608/deals/issues"
+  },
+  "homepage": "https://github.com/Eshwar0608/deals#readme",
+  "dependencies": {
+    "next": "^16.2.7",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.4",
+    "eslint-config-next": "^16.2.7",
+    "postcss": "^8.5.15",
+    "typescript": "^6.0.3"
+  },
+  "private": true,
+  "overrides": {
+    "postcss": "^8.5.15"
+  }
+}
