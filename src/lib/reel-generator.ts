@@ -539,11 +539,12 @@ async function buildCaptionFilter(
   outputDir: string,
   warnings: string[],
 ): Promise<string> {
-  const renderer = process.env.CAPTION_RENDERER || (process.platform === "win32" ? "none" : "drawtext");
+  const requestedRenderer = process.env.CAPTION_RENDERER;
+  const renderer = selectCaptionRenderer(requestedRenderer);
 
   if (renderer === "none") {
     if (process.platform === "win32") {
-      warnings.push("Burned-in captions are disabled on Windows by default because this FFmpeg build crashes in Fontconfig. Use the downloadable SRT captions, or set CAPTION_RENDERER=ass to try subtitle burn-in manually.");
+      warnings.push("Burned-in captions are disabled on Windows because this FFmpeg build crashes in Fontconfig. Download the SRT captions separately. Advanced users can set CAPTION_RENDERER=force-ass or force-drawtext to test burned-in captions manually.");
     }
     return "null";
   }
@@ -555,6 +556,18 @@ async function buildCaptionFilter(
   }
 
   return buildVideoFilter(input, segments, palette, fontFile);
+}
+
+function selectCaptionRenderer(requestedRenderer: string | undefined): "none" | "ass" | "drawtext" {
+  if (process.platform === "win32") {
+    if (requestedRenderer === "force-ass") return "ass";
+    if (requestedRenderer === "force-drawtext") return "drawtext";
+    return "none";
+  }
+
+  if (requestedRenderer === "none") return "none";
+  if (requestedRenderer === "ass" || requestedRenderer === "force-ass") return "ass";
+  return "drawtext";
 }
 
 function buildAssVideoFilter(palette: { background: string; accent: string }, assPath: string): string {

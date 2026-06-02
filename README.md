@@ -200,14 +200,14 @@ $env:FFMPEG_BIN="C:\\Path\\To\\ffmpeg.exe"
 npm run dev
 ```
 
-On Windows, burned-in captions are disabled by default because some FFmpeg builds crash with `Fontconfig error: Cannot load default config file`. The app still generates downloadable `.srt` captions. If you want to manually retry burned-in subtitles, start with:
+On Windows, burned-in captions are disabled by default because some FFmpeg builds crash with `Fontconfig error: Cannot load default config file`; `CAPTION_RENDERER=ass` is ignored on Windows unless you use `force-ass`. The app still generates downloadable `.srt` captions. If you want to manually retry burned-in subtitles, start with:
 
 ```powershell
-$env:CAPTION_RENDERER="ass"
+$env:CAPTION_RENDERER="force-ass"
 npm run dev
 ```
 
-If FFmpeg reports `Fontconfig error: Cannot load default config file`, keep `CAPTION_RENDERER` unset and use the downloadable SRT captions. You can also set a Windows font file before starting the app:
+If FFmpeg reports `Fontconfig error: Cannot load default config file`, remove `CAPTION_RENDERER` entirely and use the downloadable SRT captions. You can also set a Windows font file before starting the app:
 
 ```powershell
 $env:REEL_FONT_FILE="C:\\Windows\\Fonts\\arial.ttf"
