@@ -323,7 +323,7 @@ async function renderVideo(
     warnings.push("No Windows caption font file was found. Set REEL_FONT_FILE to a .ttf font path if FFmpeg reports Fontconfig errors.");
   }
 
-  const captionFilter = buildVideoFilter(input, segments, palette, captionFontFile);
+  const captionFilter = await buildCaptionFilter(input, segments, palette, captionFontFile, outputDir);
   const stockClips = await downloadStockVideoClips(outputDir, input, segments, warnings);
   const imagePaths = stockClips.length > 0 ? [] : await downloadSceneImages(outputDir, input, segments, warnings);
   const args = stockClips.length > 0
@@ -336,9 +336,25 @@ async function renderVideo(
     await runCommand(ffmpegBin, args, undefined, 180000);
     return outputPath;
   } catch (error) {
-    warnings.push(`FFmpeg render failed: ${error instanceof Error ? error.message : "unknown error"}. Script and captions were still generated.`);
+    const message = error instanceof Error ? error.message : "unknown error";
+    warnings.push(`FFmpeg render failed: ${message}. Retrying without burned-in captions.`);
     await writeFile(path.join(outputDir, "render-debug.json"), JSON.stringify({ input, segments, captionsPath, args }, null, 2));
-    return null;
+
+    const fallbackArgs = stockClips.length > 0
+      ? buildStockVideoRenderArgs(input, segments, stockClips, "null", outputPath, audioPath)
+      : imagePaths.length === segments.length
+        ? buildImageRenderArgs(input, segments, imagePaths, "null", outputPath, audioPath)
+        : buildColorRenderArgs(input, palette, "null", outputPath, audioPath);
+
+    try {
+      await runCommand(ffmpegBin, fallbackArgs, undefined, 180000);
+      warnings.push("Rendered MP4 without burned-in captions. Download the SRT captions separately from the output links.");
+      return outputPath;
+    } catch (fallbackError) {
+      warnings.push(`Fallback render failed: ${fallbackError instanceof Error ? fallbackError.message : "unknown error"}. Script and captions were still generated.`);
+      await writeFile(path.join(outputDir, "render-fallback-debug.json"), JSON.stringify({ input, segments, captionsPath, args: fallbackArgs }, null, 2));
+      return null;
+    }
   }
 }
 
@@ -513,6 +529,53 @@ function buildImageRenderArgs(
   );
 
   return args;
+}
+
+async function buildCaptionFilter(
+  input: NormalizedInput,
+  segments: ReelSegment[],
+  palette: { background: string; accent: string },
+  fontFile: string | null,
+  outputDir: string,
+): Promise<string> {
+  if (process.platform === "win32" || process.env.CAPTION_RENDERER === "ass") {
+    const assPath = path.join(outputDir, "captions.ass");
+    await writeFile(assPath, buildAssCaptions(segments), "utf8");
+    return buildAssVideoFilter(palette, assPath);
+  }
+
+  return buildVideoFilter(input, segments, palette, fontFile);
+}
+
+function buildAssVideoFilter(palette: { background: string; accent: string }, assPath: string): string {
+  return [
+    "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.28:t=fill",
+    `drawbox=x=0:y=0:w=iw:h=170:color=${palette.accent}@0.46:t=fill`,
+    `subtitles=filename='${escapeFilterPath(assPath)}'`,
+  ].join(",");
+}
+
+function buildAssCaptions(segments: ReelSegment[]): string {
+  const events = segments
+    .map((segment) => {
+      const text = wrapCaptionText(normalizeCaptionForRender(segment.text), 26, 3)
+        .replace(/\n/g, "\\N")
+        .replace(/[{}]/g, "");
+      return `Dialogue: 0,${toAssTimestamp(segment.start)},${toAssTimestamp(segment.end)},Default,,0,0,0,,${text}`;
+    })
+    .join("\n");
+
+  return `[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Default,Segoe UI,58,&H00FFFFFF,&H00FFFFFF,&HAA000000,&HAA000000,-1,0,0,0,100,100,0,0,3,3,0,2,90,90,260,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events}\n`;
+}
+
+function toAssTimestamp(value: number): string {
+  const totalCentiseconds = Math.max(0, Math.round(value * 100));
+  const hours = Math.floor(totalCentiseconds / 360000);
+  const minutes = Math.floor((totalCentiseconds % 360000) / 6000);
+  const seconds = Math.floor((totalCentiseconds % 6000) / 100);
+  const centiseconds = totalCentiseconds % 100;
+
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
 }
 
 function buildVideoFilter(
