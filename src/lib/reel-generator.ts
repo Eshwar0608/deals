@@ -198,9 +198,9 @@ async function generateWithOllama(input: NormalizedInput): Promise<string[]> {
 }
 
 function fallbackScript(input: NormalizedInput): string[] {
-  const topic = input.topic.replace(/[.!?]+$/g, "");
+  const topic = sanitizeScriptLine(input.topic.replace(/[.!?]+$/g, ""));
   const tone = input.tone.toLowerCase();
-  const style = input.style.toLowerCase();
+  const style = sanitizeScriptLine(input.style.toLowerCase());
 
   const hook = tone.includes("funny")
     ? `Nobody tells you this about ${topic}`
@@ -226,18 +226,26 @@ function cleanLines(raw: string): string[] {
       .replace(/^\(?\s*\d+(?:\.\d+)?\s*s?\s*[-–]\s*\d+(?:\.\d+)?\s*s?\s*\)?\s*/i, "")
       .replace(/^\[?\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–]\s*\d{1,2}:\d{2}(?::\d{2})?\s*\]?\s*/i, "")
       .replace(/^[-*\d.)\s]+/, "")
-      .replace(/["`#]/g, "")
-      .replace(/['’‘]/g, "")
       .trim())
+    .map(sanitizeScriptLine)
     .filter((line) => line.length > 0)
     .map((line) => line.slice(0, 90))
     .slice(0, 6);
 }
 
+function sanitizeScriptLine(text: string): string {
+  return text
+    .replace(/["`#]/g, "")
+    .replace(/['’‘]/g, "")
+    .replace(/[“”]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function createSegments(lines: string[], duration: number): ReelSegment[] {
   const segmentLength = duration / lines.length;
   return lines.map((text, index) => ({
-    text,
+    text: sanitizeScriptLine(text),
     start: roundTime(index * segmentLength),
     end: roundTime(index === lines.length - 1 ? duration : (index + 1) * segmentLength),
   }));
