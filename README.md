@@ -9,7 +9,8 @@ The app can:
 - Generate timed `.srt` captions
 - Generate a local voiceover with Piper, espeak, or espeak-ng when available
 - Render a downloadable 9:16 `.mp4` reel with FFmpeg
-- Add free remote photo backgrounds from Picsum when internet is available
+- Search and download topic-matched stock videos from Pexels or Pixabay when API keys are configured
+- Fall back to free remote photo backgrounds from Picsum when stock videos are unavailable
 - Run as a Next.js website on your own machine
 
 ## Why this is free
@@ -29,6 +30,7 @@ Optional but recommended:
 - Ollama for local script generation
 - Piper TTS for better local voiceover
 - espeak or espeak-ng as a basic voiceover fallback
+- Pexels or Pixabay API key for topic-matched stock videos
 
 ## Quick start
 
@@ -111,6 +113,71 @@ $env:ESPEAK_BIN="C:\\Path\\To\\espeak-ng.exe"
 
 If no TTS tool is available, the app renders a silent video with captions.
 
+## Topic-matched stock videos
+
+For better reels, configure at least one free stock-video API key. The app searches Pexels first, then Pixabay, downloads up to 6 clips, crops them to 9:16, and renders captions/voice over them.
+
+### Option A: Pexels video API
+
+1. Create/login to a Pexels account.
+2. Open `https://www.pexels.com/api/`.
+3. Create/copy your API key.
+4. Set it before starting the app.
+
+PowerShell:
+
+```powershell
+$env:PEXELS_API_KEY="your_pexels_api_key"
+npm run dev
+```
+
+macOS/Linux:
+
+```bash
+export PEXELS_API_KEY="your_pexels_api_key"
+npm run dev
+```
+
+Default Pexels limits are usually enough for local testing: 200 requests/hour and 20,000 requests/month. One reel normally uses one search request plus video downloads.
+
+### Option B: Pixabay video API fallback
+
+1. Create/login to a Pixabay account.
+2. Open `https://pixabay.com/api/docs/`.
+3. Copy your API key.
+4. Set it before starting the app.
+
+PowerShell:
+
+```powershell
+$env:PIXABAY_API_KEY="your_pixabay_api_key"
+npm run dev
+```
+
+macOS/Linux:
+
+```bash
+export PIXABAY_API_KEY="your_pixabay_api_key"
+npm run dev
+```
+
+Pixabay expects API responses to be cached for 24 hours for production apps. This local MVP downloads only a few clips per generation, but a public site should add caching before many users use it.
+
+### Disable stock videos
+
+If you want to force the previous photo/fallback renderer:
+
+```powershell
+$env:STOCK_VIDEOS_DISABLED="1"
+npm run dev
+```
+
+Fallback order:
+
+```text
+Pexels stock videos -> Pixabay stock videos -> Picsum photo scenes -> generated color background
+```
+
 ## Windows ARM quick setup
 
 Open PowerShell as Administrator:
@@ -146,21 +213,23 @@ npm run dev
 Prompt/topic
 -> Ollama local model or template fallback creates 6 caption lines
 -> App creates timed SRT captions
--> App downloads free background photos from Picsum when internet is available
+-> App searches Pexels/Pixabay for topic-matched stock videos when API keys are configured
+-> App falls back to free Picsum photo scenes when stock videos are unavailable
 -> Piper/espeak/espeak-ng creates a WAV voiceover if available
--> FFmpeg renders photo scenes, visual title cards, and safer captions into a 1080x1920 MP4
+-> FFmpeg renders video/photo scenes, visual title cards, and safer captions into a 1080x1920 MP4
 -> Browser shows preview and download links
 ```
 
-To force fully offline generation with no remote photos:
+To force fully offline generation with no stock videos or remote photos:
 
 ```bash
-REMOTE_IMAGES_DISABLED=1 npm run dev
+STOCK_VIDEOS_DISABLED=1 REMOTE_IMAGES_DISABLED=1 npm run dev
 ```
 
 PowerShell:
 
 ```powershell
+$env:STOCK_VIDEOS_DISABLED="1"
 $env:REMOTE_IMAGES_DISABLED="1"
 npm run dev
 ```

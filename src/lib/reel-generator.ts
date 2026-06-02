@@ -46,6 +46,24 @@ type CommandResult = {
   stderr: string;
 };
 
+type StockVideoClip = {
+  path: string;
+  source: "pexels" | "pixabay";
+  attribution: string;
+  pageUrl: string;
+};
+
+type StockVideoCandidate = {
+  source: "pexels" | "pixabay";
+  id: string;
+  downloadUrl: string;
+  pageUrl: string;
+  width: number;
+  height: number;
+  duration: number;
+  attribution: string;
+};
+
 export function normalizeReelInput(body: unknown):
   | { ok: true; value: NormalizedInput }
   | { ok: false; error: string } {
@@ -298,10 +316,13 @@ async function renderVideo(
   }
 
   const captionFilter = buildVideoFilter(input, segments, palette, captionFontFile);
-  const imagePaths = await downloadSceneImages(outputDir, input, segments, warnings);
-  const args = imagePaths.length === segments.length
-    ? buildImageRenderArgs(input, segments, imagePaths, captionFilter, outputPath, audioPath)
-    : buildColorRenderArgs(input, palette, captionFilter, outputPath, audioPath);
+  const stockClips = await downloadStockVideoClips(outputDir, input, segments, warnings);
+  const imagePaths = stockClips.length > 0 ? [] : await downloadSceneImages(outputDir, input, segments, warnings);
+  const args = stockClips.length > 0
+    ? buildStockVideoRenderArgs(input, segments, stockClips, captionFilter, outputPath, audioPath)
+    : imagePaths.length === segments.length
+      ? buildImageRenderArgs(input, segments, imagePaths, captionFilter, outputPath, audioPath)
+      : buildColorRenderArgs(input, palette, captionFilter, outputPath, audioPath);
 
   try {
     await runCommand(ffmpegBin, args, undefined, 180000);
@@ -365,6 +386,67 @@ function buildColorRenderArgs(
   }
 
   args.push(outputPath);
+  return args;
+}
+
+function buildStockVideoRenderArgs(
+  input: NormalizedInput,
+  segments: ReelSegment[],
+  clips: StockVideoClip[],
+  captionFilter: string,
+  outputPath: string,
+  audioPath: string | null,
+): string[] {
+  const sceneClips = segments.map((_, index) => clips[index % clips.length]);
+  const args = ["-y"];
+
+  for (let index = 0; index < sceneClips.length; index += 1) {
+    const segmentDuration = Math.max(0.1, segments[index].end - segments[index].start);
+    args.push("-stream_loop", "-1", "-t", String(segmentDuration), "-i", sceneClips[index].path);
+  }
+
+  if (audioPath) {
+    args.push("-i", audioPath);
+  }
+
+  const preparedInputs = sceneClips
+    .map((_, index) => {
+      const segmentDuration = Math.max(0.1, segments[index].end - segments[index].start);
+      return `[${index}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,fps=30,trim=duration=${segmentDuration},setpts=PTS-STARTPTS[v${index}]`;
+    })
+    .join(";");
+  const concatInputs = sceneClips.map((_, index) => `[v${index}]`).join("");
+  const filterComplex = `${preparedInputs};${concatInputs}concat=n=${sceneClips.length}:v=1:a=0,format=yuv420p[base];[base]${captionFilter}[v]`;
+
+  args.push(
+    "-filter_complex",
+    filterComplex,
+    "-map",
+    "[v]",
+  );
+
+  if (audioPath) {
+    args.push("-map", `${sceneClips.length}:a:0`, "-c:a", "aac", "-b:a", "128k", "-shortest");
+  } else {
+    args.push("-an");
+  }
+
+  args.push(
+    "-t",
+    String(input.duration),
+    "-r",
+    "30",
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    outputPath,
+  );
+
   return args;
 }
 
@@ -524,6 +606,272 @@ function escapeDrawText(text: string): string {
     .replace(/\]/g, "\\]")
     .replace(/%/g, "\\%");
 }
+
+async function downloadStockVideoClips(
+  outputDir: string,
+  input: NormalizedInput,
+  segments: ReelSegment[],
+  warnings: string[],
+): Promise<StockVideoClip[]> {
+  if (process.env.STOCK_VIDEOS_DISABLED === "1") {
+    return [];
+  }
+
+  const candidates = await searchStockVideoCandidates(input, warnings);
+  if (candidates.length === 0) {
+    if (!process.env.PEXELS_API_KEY && !process.env.PIXABAY_API_KEY) {
+      warnings.push("No stock video API key configured. Add PEXELS_API_KEY or PIXABAY_API_KEY for topic-matched background videos.");
+    }
+    return [];
+  }
+
+  const selected = selectStockVideoCandidates(candidates, Math.min(segments.length, 6));
+  const clips: StockVideoClip[] = [];
+  const attributionLines: string[] = [];
+
+  for (let index = 0; index < selected.length; index += 1) {
+    const candidate = selected[index];
+    const clipPath = path.join(outputDir, `stock-${index + 1}-${candidate.source}.mp4`);
+
+    try {
+      await downloadBinaryFile(candidate.downloadUrl, clipPath, 25000);
+      clips.push({
+        path: clipPath,
+        source: candidate.source,
+        attribution: candidate.attribution,
+        pageUrl: candidate.pageUrl,
+      });
+      attributionLines.push(`${index + 1}. ${candidate.attribution} (${candidate.source}) - ${candidate.pageUrl}`);
+    } catch (error) {
+      warnings.push(`Could not download ${candidate.source} stock video ${index + 1}: ${error instanceof Error ? error.message : "unknown error"}.`);
+    }
+  }
+
+  if (attributionLines.length > 0) {
+    await writeFile(path.join(outputDir, "stock-sources.txt"), attributionLines.join("\n"), "utf8");
+  }
+
+  if (clips.length === 0 && candidates.length > 0) {
+    warnings.push("Stock video search found results, but none could be downloaded. Used photo fallback.");
+  }
+
+  return clips;
+}
+
+async function searchStockVideoCandidates(
+  input: NormalizedInput,
+  warnings: string[],
+): Promise<StockVideoCandidate[]> {
+  const query = buildStockVideoQuery(input.topic);
+  const pexelsKey = process.env.PEXELS_API_KEY;
+  const pixabayKey = process.env.PIXABAY_API_KEY;
+
+  if (pexelsKey) {
+    const pexels = await searchPexelsVideos(query, pexelsKey, warnings);
+    if (pexels.length > 0) {
+      return pexels;
+    }
+  }
+
+  if (pixabayKey) {
+    const pixabay = await searchPixabayVideos(query, pixabayKey, warnings);
+    if (pixabay.length > 0) {
+      return pixabay;
+    }
+  }
+
+  return [];
+}
+
+async function searchPexelsVideos(
+  query: string,
+  apiKey: string,
+  warnings: string[],
+): Promise<StockVideoCandidate[]> {
+  try {
+    const url = new URL("https://api.pexels.com/videos/search");
+    url.searchParams.set("query", query);
+    url.searchParams.set("orientation", "portrait");
+    url.searchParams.set("per_page", "15");
+
+    const response = await fetch(url, {
+      headers: { Authorization: apiKey },
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json() as {
+      videos?: Array<{
+        id: number;
+        url: string;
+        duration?: number;
+        user?: { name?: string; url?: string };
+        video_files?: Array<{
+          id?: number;
+          quality?: string;
+          file_type?: string;
+          width?: number;
+          height?: number;
+          link?: string;
+        }>;
+      }>;
+    };
+
+    return (data.videos || [])
+      .flatMap((video) => {
+        const bestFile = selectBestPexelsFile(video.video_files || []);
+        if (!bestFile?.link) return [];
+        const photographer = video.user?.name || "Pexels creator";
+        return [{
+          source: "pexels" as const,
+          id: String(video.id),
+          downloadUrl: bestFile.link,
+          pageUrl: video.url,
+          width: bestFile.width || 0,
+          height: bestFile.height || 0,
+          duration: video.duration || 0,
+          attribution: `Video by ${photographer} on Pexels`,
+        }];
+      });
+  } catch (error) {
+    warnings.push(`Pexels video search failed: ${error instanceof Error ? error.message : "unknown error"}.`);
+    return [];
+  }
+}
+
+async function searchPixabayVideos(
+  query: string,
+  apiKey: string,
+  warnings: string[],
+): Promise<StockVideoCandidate[]> {
+  try {
+    const url = new URL("https://pixabay.com/api/videos/");
+    url.searchParams.set("key", apiKey);
+    url.searchParams.set("q", query);
+    url.searchParams.set("video_type", "film");
+    url.searchParams.set("safesearch", "true");
+    url.searchParams.set("per_page", "20");
+
+    const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json() as {
+      hits?: Array<{
+        id: number;
+        pageURL?: string;
+        user?: string;
+        duration?: number;
+        videos?: Record<string, { url?: string; width?: number; height?: number; size?: number }>;
+      }>;
+    };
+
+    return (data.hits || [])
+      .flatMap((video) => {
+        const bestFile = selectBestPixabayFile(video.videos || {});
+        if (!bestFile?.url) return [];
+        return [{
+          source: "pixabay" as const,
+          id: String(video.id),
+          downloadUrl: bestFile.url,
+          pageUrl: video.pageURL || "https://pixabay.com/videos/",
+          width: bestFile.width || 0,
+          height: bestFile.height || 0,
+          duration: video.duration || 0,
+          attribution: `Video by ${video.user || "Pixabay creator"} on Pixabay`,
+        }];
+      });
+  } catch (error) {
+    warnings.push(`Pixabay video search failed: ${error instanceof Error ? error.message : "unknown error"}.`);
+    return [];
+  }
+}
+
+function selectBestPexelsFile(
+  files: Array<{ file_type?: string; width?: number; height?: number; link?: string; quality?: string }>,
+): { width?: number; height?: number; link?: string } | null {
+  return files
+    .filter((file) => file.link && (!file.file_type || file.file_type.includes("mp4")))
+    .sort((a, b) => stockCandidateScore(b.width || 0, b.height || 0) - stockCandidateScore(a.width || 0, a.height || 0))[0] || null;
+}
+
+function selectBestPixabayFile(
+  files: Record<string, { url?: string; width?: number; height?: number; size?: number }>,
+): { url?: string; width?: number; height?: number } | null {
+  return Object.values(files)
+    .filter((file) => file.url)
+    .sort((a, b) => stockCandidateScore(b.width || 0, b.height || 0) - stockCandidateScore(a.width || 0, a.height || 0))[0] || null;
+}
+
+function selectStockVideoCandidates(candidates: StockVideoCandidate[], count: number): StockVideoCandidate[] {
+  const seen = new Set<string>();
+  return candidates
+    .filter((candidate) => {
+      if (seen.has(candidate.downloadUrl)) return false;
+      seen.add(candidate.downloadUrl);
+      return true;
+    })
+    .sort((a, b) => stockCandidateScore(b.width, b.height) - stockCandidateScore(a.width, a.height))
+    .slice(0, count);
+}
+
+function stockCandidateScore(width: number, height: number): number {
+  const isPortrait = height >= width;
+  const resolution = width * height;
+  return resolution + (isPortrait ? 10_000_000 : 0);
+}
+
+function buildStockVideoQuery(topic: string): string {
+  const cleaned = topic
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !STOP_WORDS.has(word))
+    .slice(0, 5)
+    .join(" ")
+    .trim();
+
+  return cleaned || topic.slice(0, 60) || "nature travel";
+}
+
+async function downloadBinaryFile(url: string, filePath: string, timeoutMs: number): Promise<void> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.byteLength < 1024) {
+    throw new Error("downloaded file was too small");
+  }
+
+  await writeFile(filePath, buffer);
+}
+
+const STOP_WORDS = new Set([
+  "about",
+  "with",
+  "this",
+  "that",
+  "your",
+  "from",
+  "into",
+  "reel",
+  "video",
+  "short",
+  "create",
+  "make",
+  "tips",
+  "idea",
+  "ideas",
+  "best",
+  "good",
+]);
 
 async function downloadSceneImages(
   outputDir: string,
