@@ -243,7 +243,7 @@ export default function Home() {
           <article>
             <h3>3. Stock video + render</h3>
             <p>Add PEXELS_API_KEY or PIXABAY_API_KEY for topic-matched clips, then install FFmpeg to render 9:16 MP4 reels.</p>
-            <code>$env:PEXELS_API_KEY="..."</code>
+            <code>$env:PEXELS_API_KEY=&quot;...&quot;</code>
           </article>
         </div>
       </section>
