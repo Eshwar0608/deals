@@ -323,7 +323,7 @@ async function renderVideo(
     warnings.push("No Windows caption font file was found. Set REEL_FONT_FILE to a .ttf font path if FFmpeg reports Fontconfig errors.");
   }
 
-  const captionFilter = await buildCaptionFilter(input, segments, palette, captionFontFile, outputDir);
+  const captionFilter = await buildCaptionFilter(input, segments, palette, captionFontFile, outputDir, warnings);
   const stockClips = await downloadStockVideoClips(outputDir, input, segments, warnings);
   const imagePaths = stockClips.length > 0 ? [] : await downloadSceneImages(outputDir, input, segments, warnings);
   const args = stockClips.length > 0
@@ -537,8 +537,18 @@ async function buildCaptionFilter(
   palette: { background: string; accent: string },
   fontFile: string | null,
   outputDir: string,
+  warnings: string[],
 ): Promise<string> {
-  if (process.platform === "win32" || process.env.CAPTION_RENDERER === "ass") {
+  const renderer = process.env.CAPTION_RENDERER || (process.platform === "win32" ? "none" : "drawtext");
+
+  if (renderer === "none") {
+    if (process.platform === "win32") {
+      warnings.push("Burned-in captions are disabled on Windows by default because this FFmpeg build crashes in Fontconfig. Use the downloadable SRT captions, or set CAPTION_RENDERER=ass to try subtitle burn-in manually.");
+    }
+    return "null";
+  }
+
+  if (renderer === "ass") {
     const assPath = path.join(outputDir, "captions.ass");
     await writeFile(assPath, buildAssCaptions(segments), "utf8");
     return buildAssVideoFilter(palette, assPath);
