@@ -83,11 +83,12 @@ export default function Home() {
             <h1>Generate reel videos with local AI tools.</h1>
             <p className="lead">
               Enter a topic, let Ollama or the built-in template create the reel script, and render a
-              vertical MP4 with FFmpeg. No Gemini, OpenAI, or paid API is required.
+              vertical MP4 with FFmpeg. No Gemini, OpenAI, or paid AI API is required; optional Pexels/Pixabay keys add topic-matched stock videos.
             </p>
             <div className="badges" aria-label="Supported tools">
               <span>Ollama optional</span>
               <span>Piper or espeak-ng optional</span>
+              <span>Pexels/Pixabay video optional</span>
               <span>FFmpeg renderer</span>
               <span>9:16 MP4</span>
             </div>
@@ -159,7 +160,7 @@ export default function Home() {
           </button>
 
           <p className="hint">
-            Best free setup: run Ollama locally for scripts, Piper for natural voice, and FFmpeg for the MP4.
+            Best free setup: run Ollama locally for scripts, add a Pexels or Pixabay key for matching stock clips, use Piper for natural voice, and FFmpeg for the MP4.
             If Ollama or TTS is missing, this app still creates a script/caption fallback.
           </p>
         </form>
@@ -240,9 +241,9 @@ export default function Home() {
             <code>export PIPER_MODEL=/path/to/voice.onnx</code>
           </article>
           <article>
-            <h3>3. Render</h3>
-            <p>Install FFmpeg so the backend can create downloadable 9:16 MP4 reels.</p>
-            <code>ffmpeg -version</code>
+            <h3>3. Stock video + render</h3>
+            <p>Add PEXELS_API_KEY or PIXABAY_API_KEY for topic-matched clips, then install FFmpeg to render 9:16 MP4 reels.</p>
+            <code>$env:PEXELS_API_KEY="..."</code>
           </article>
         </div>
       </section>
