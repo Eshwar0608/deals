@@ -198,9 +198,9 @@ async function generateWithOllama(input: NormalizedInput): Promise<string[]> {
 }
 
 function fallbackScript(input: NormalizedInput): string[] {
-  const topic = input.topic.replace(/[.!?]+$/g, "");
+  const topic = sanitizeScriptLine(input.topic.replace(/[.!?]+$/g, ""));
   const tone = input.tone.toLowerCase();
-  const style = input.style.toLowerCase();
+  const style = sanitizeScriptLine(input.style.toLowerCase());
 
   const hook = tone.includes("funny")
     ? `Nobody tells you this about ${topic}`
@@ -226,18 +226,26 @@ function cleanLines(raw: string): string[] {
       .replace(/^\(?\s*\d+(?:\.\d+)?\s*s?\s*[-–]\s*\d+(?:\.\d+)?\s*s?\s*\)?\s*/i, "")
       .replace(/^\[?\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–]\s*\d{1,2}:\d{2}(?::\d{2})?\s*\]?\s*/i, "")
       .replace(/^[-*\d.)\s]+/, "")
-      .replace(/["`#]/g, "")
-      .replace(/['’‘]/g, "")
       .trim())
+    .map(sanitizeScriptLine)
     .filter((line) => line.length > 0)
     .map((line) => line.slice(0, 90))
     .slice(0, 6);
 }
 
+function sanitizeScriptLine(text: string): string {
+  return text
+    .replace(/["`#]/g, "")
+    .replace(/['’‘]/g, "")
+    .replace(/[“”]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function createSegments(lines: string[], duration: number): ReelSegment[] {
   const segmentLength = duration / lines.length;
   return lines.map((text, index) => ({
-    text,
+    text: sanitizeScriptLine(text),
     start: roundTime(index * segmentLength),
     end: roundTime(index === lines.length - 1 ? duration : (index + 1) * segmentLength),
   }));
@@ -912,17 +920,18 @@ async function downloadSceneImages(
 
 async function findCaptionFontFile(): Promise<string | null> {
   const explicit = process.env.REEL_FONT_FILE;
-  if (explicit && await fileExists(explicit)) {
+  if (explicit) {
     return explicit;
   }
 
   const windowsDir = process.env.WINDIR || "C:\\Windows";
   const candidates = process.platform === "win32"
     ? [
+        path.join(windowsDir, "Fonts", "segoeui.ttf"),
         path.join(windowsDir, "Fonts", "arial.ttf"),
         path.join(windowsDir, "Fonts", "arialbd.ttf"),
-        path.join(windowsDir, "Fonts", "segoeui.ttf"),
         path.join(windowsDir, "Fonts", "seguisb.ttf"),
+        "C:\\Windows\\Fonts\\segoeui.ttf",
         "C:\\Windows\\Fonts\\arial.ttf",
       ]
     : [
@@ -936,6 +945,13 @@ async function findCaptionFontFile(): Promise<string | null> {
     if (await fileExists(candidate)) {
       return candidate;
     }
+  }
+
+  // Windows FFmpeg builds can crash when drawtext falls back to Fontconfig.
+  // Return the standard Segoe UI path even when Node cannot stat it, so FFmpeg
+  // receives an explicit fontfile and avoids Fontconfig entirely.
+  if (process.platform === "win32") {
+    return "C:\\Windows\\Fonts\\segoeui.ttf";
   }
 
   return null;
