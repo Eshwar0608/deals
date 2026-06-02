@@ -920,17 +920,18 @@ async function downloadSceneImages(
 
 async function findCaptionFontFile(): Promise<string | null> {
   const explicit = process.env.REEL_FONT_FILE;
-  if (explicit && await fileExists(explicit)) {
+  if (explicit) {
     return explicit;
   }
 
   const windowsDir = process.env.WINDIR || "C:\\Windows";
   const candidates = process.platform === "win32"
     ? [
+        path.join(windowsDir, "Fonts", "segoeui.ttf"),
         path.join(windowsDir, "Fonts", "arial.ttf"),
         path.join(windowsDir, "Fonts", "arialbd.ttf"),
-        path.join(windowsDir, "Fonts", "segoeui.ttf"),
         path.join(windowsDir, "Fonts", "seguisb.ttf"),
+        "C:\\Windows\\Fonts\\segoeui.ttf",
         "C:\\Windows\\Fonts\\arial.ttf",
       ]
     : [
@@ -944,6 +945,13 @@ async function findCaptionFontFile(): Promise<string | null> {
     if (await fileExists(candidate)) {
       return candidate;
     }
+  }
+
+  // Windows FFmpeg builds can crash when drawtext falls back to Fontconfig.
+  // Return the standard Segoe UI path even when Node cannot stat it, so FFmpeg
+  // receives an explicit fontfile and avoids Fontconfig entirely.
+  if (process.platform === "win32") {
+    return "C:\\Windows\\Fonts\\segoeui.ttf";
   }
 
   return null;
